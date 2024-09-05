@@ -1,0 +1,3 @@
+[submodule "Server/CoreMountain"]
+	path = Server/CoreMountain
+	url = git@github.com:JustCoderdev/CoreMountain.git
