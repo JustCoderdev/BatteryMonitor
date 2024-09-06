@@ -7,7 +7,37 @@ one has low battery and monitor their progress
 
 ## The tools
 
- - Server    (written in C)
- - Dashboard (HTML served by the Server)
- - Shortcut  (client "updater")
+### Server (written in C)
+
+Goals of server
+
+- Serve dashboard website
+- Listen to put request
+- Listen to get request
+
+```http
+PUT /update
+Content-Type: json
+Body:
+{
+    id: "iPad 2.0",
+    battery: 86.5,
+    time: 123456789465
+}
+```
+
+```http
+GET /<id>
+Content-Type: json
+Body:
+{
+    id: "iPad 2.0",
+    battery: 86.5,
+    time: 123456789465
+}
+```
+
+## Dashboard (HTML served by the Server)
+
+## Shortcut  (client "updater")
 
