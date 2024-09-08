@@ -25,8 +25,8 @@ LDFLAGS = -L./
 #		-Wl,-rpath=./lib/raylib/ -L./lib/raylib -lraylib
 ##-lXrandr -lXinerama -lXi -lXcursor
 
-#-DDEBUG_MEMDEB_ENABLE=1
-#-DDEBUG_STRING_ENABLE=1
+# -DDEBUG_STRING_ENABLE=1
+# -DDEBUG_MEMDEB_ENABLE=1
 DFLAGS = -DDEBUG_ENABLE=1 -DSGR_ENABLE=1
 FLAGS = $(CCFLAGS) $(IFLAGS) $(LDFLAGS) $(RAYFLAGS) $(DFLAGS)
 
