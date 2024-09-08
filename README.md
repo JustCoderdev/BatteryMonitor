@@ -17,8 +17,8 @@ Goals of server
 
 ```http
 PUT /update
-Content-Type: json
-Body:
+Content-Type: application/json
+
 {
     id: "iPad 2.0",
     battery: 86.5,
@@ -27,9 +27,9 @@ Body:
 ```
 
 ```http
-GET /<id>
-Content-Type: json
-Body:
+GET /
+Content-Type: application/json
+
 {
     id: "iPad 2.0",
     battery: 86.5,
