@@ -1,0 +1,77 @@
+/* JustCoderdev's Style v1 */
+
+:root {
+	/* palette */
+	--fg-primary: hsl(45deg, 25%, 80%);
+
+	--bg-primary:   #252525;
+	--bg-secondary: #3c3c3c;
+
+	--tint-white: #ffffff;
+	--tint-red: hsl(0deg,  100%,  55%);
+	--tint-yellow-dim: hsl(45deg,  40%,  40%);
+	--tint-yellow:     hsl(45deg,  80%,  40%);
+	--tint-yellow-br:  hsl(45deg,  80%,  60%);
+}
+
+html {
+	display: flex;
+	justify-content: center;
+}
+
+body {
+	padding: .5em;
+	max-width: 80ch;
+
+	background-color: var(--bg-primary);
+	color: var(--fg-primary);
+	line-height: 1.3;
+
+	/* Linux: DejaVu Sans Mono Font */
+	font-family: monospace;
+	font-size: 1.6em;
+} 
+
+header, footer {
+	padding: 1em;
+	background-color: var(--bg-secondary);
+}
+
+header > span { text-align: right; }
+header {
+	margin: 0em 0em 2em 0em;
+
+	display: flex;
+	justify-content: space-between;
+}
+
+footer { margin: 2em 0em 0em 0em; }
+
+h1 { text-align: center; }
+h2 { margin: 2em 0em 1em 0em; }
+h3 { margin: 2em 1em 1em 1em; }
+
+p  { margin: 1em; }
+li { margin: 0.5em 1em; }
+li::marker {
+	content: '* ';
+	font-weight: 900;
+}
+
+*[title] { text-decoration: 0.1em underline dashed var(--tint-yellow); }
+*[title]:hover { text-decoration-color: var(--tint-yellow-br); }
+
+*:has(> code) { line-height: 1.5em; }
+code {
+	padding: 0.1em 0.4em;
+	background-color: var(--bg-secondary);
+	border-radius: 0.1em;
+}
+sup { vertical-align: top; font-size: 0.6em; }	
+em { color: var(--tint-red); }
+
+a, a:link { color: var(--tint-yellow);     } /* Unvisited link  */
+a:visited { color: var(--tint-yellow-dim); } /* Link in history */
+a:hover   { color: var(--tint-yellow-br);  } /* Mouse hovering  */
+a:active  { color: var(--tint-white);      } /* Mouse clicking  */
+
