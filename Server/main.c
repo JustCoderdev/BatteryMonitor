@@ -27,6 +27,7 @@ typedef enum {
 
 CString MT_format[MT_Count] = { "text/html", "text/css" };
 
+
 typedef struct {
 	CString name; MimeType type;
 } StaticFile;
@@ -37,6 +38,7 @@ const StaticFile static_files[STATIC_FILES_COUNT] = {
 	{ "/index.html", MT_HTML }, { "/styles.css", MT_CSS }
 };
 
+
 typedef enum {
 	M_GET = 0, M_HEAD, M_POST, M_PUT, M_DELETE,
 	M_OPTIONS, M_TRACE, M_CONNECT, M_Count
@@ -46,6 +48,7 @@ CString HTTP_Method_labels[M_Count] = {
 	"GET", "HEAD", "POST", "PUT", "DELETE",
 	"OPTIONS", "TRACE", "CONNECT"
 };
+
 
 typedef struct {
 	FString key;
@@ -58,13 +61,61 @@ typedef struct {
 	n64 capacity;
 } Keyvalues;
 
+typedef struct {
+	MimeType type;
+	FString buffer;
+} Body;
+
 typedef struct
 {
 	HTTP_Method method;
-	FString URI;
+	FString uri;
 	Keyvalues headers;
-	DString body;
+	Body body;
 } Request;
+
+
+typedef error (*Endpoint_Action_func)(Request* req);
+
+typedef struct {
+	HTTP_Method method;
+	CString uri;
+	Endpoint_Action_func callback;
+} Endpoint;
+
+#define ENDPOINTS_COUNT 1
+const Endpoint endpoints[ENDPOINTS_COUNT] = {
+	{ M_POST, "/update", NULL }
+};
+
+
+static bool request_match_endpoint(const Request* req, Endpoint endpoint)
+{
+	if(req->method != endpoint.method) return false;
+	return fstring_equals(req->uri, CSTR(endpoint.uri));
+}
+
+static void request_free(Request* req)
+{
+	n64 i;
+
+	fstring_free(&req->uri);
+
+	for(i = 0; i < req->headers.count; ++i)
+	{
+		fstring_free(&req->headers.items[i].key);
+		fstring_free(&req->headers.items[i].value);
+	}
+	dfree(&req->headers.items);
+
+	fstring_free(&req->body.buffer);
+}
+
+
+/* ------------------------------------------------------------ */
+
+#undef CORE_LOG_MODULE
+#define CORE_LOG_MODULE "stream"
 
 #define client_send(SOCK, SIZE, BUFF) client_send_(SOCK, SIZE, BUFF, __FILE__, __LINE__)
 static error client_send_(int client_sockfd, n32 buffer_size, void* buffer, char* file, int line)
@@ -108,6 +159,11 @@ static error client_read_(int client_sockfd, n32 buffer_size, void* buffer, char
 	core_log(CORE_DEBUG_, "Read %d bytes from client\n", read_bytes);
 	return success;
 }
+
+#undef CORE_LOG_MODULE
+#define CORE_LOG_MODULE NULL
+
+/* ------------------------------------------------------------ */
 
 
 static error client_send_file(int client_sockfd, FString uri, MimeType mimetype)
@@ -183,7 +239,9 @@ static error client_send_file(int client_sockfd, FString uri, MimeType mimetype)
 #undef FNAME_LEN
 }
 
-static error client_send_error_response(int client_sockfd, CString message)
+#define client_send_error_response(CLIENT_SOCKFD, MESSAGE) client_send_error_response_(CLIENT_SOCKFD, MESSAGE, __FILE__, __LINE__)
+static error client_send_error_response_(int client_sockfd, CString message,
+		char* file, int line)
 {
 #define BUFF_CAP 128
 	char buffer[BUFF_CAP] =
@@ -192,30 +250,70 @@ static error client_send_error_response(int client_sockfd, CString message)
 		"\r\n"
 		"500 Server Error";
 
-	core_log(CORE_ERROR, "Sending error response: %s\n", message);
+	core_log(CORE_WARN_, "Sending error response: %s\n", message);
 
-	return client_send(client_sockfd, BUFF_CAP, buffer);
+	return client_send(client_sockfd, (n32)strlen(buffer), buffer);
 #undef BUFF_CAP
 }
 
 static error client_send_response(int client_sockfd, Request* req)
 {
+	n8 i;
+
 	/* Check if asking for static resource */
 	if(req->method == M_GET)
 	{
-		n8 i;
+		if(fstring_equals_CStr(req->uri, "/"))
+		{
+			error status;
+
+			FString index_file_name = {0};
+			fstring_new_from(&index_file_name, strlen("/index.html"), "/index.html");
+
+			status = client_send_file(client_sockfd, index_file_name, MT_HTML);
+			fstring_free(&index_file_name);
+
+			return status;
+		}
+
 		for(i = 0; i < STATIC_FILES_COUNT; ++i)
 		{
 			StaticFile sfile = static_files[i];
-			if(fstring_equals_CStr(req->URI, sfile.name))
+			if(fstring_equals_CStr(req->uri, sfile.name))
 			{
-				return client_send_file(client_sockfd, req->URI, sfile.type);
+				return client_send_file(client_sockfd, req->uri, sfile.type);
 			}
 		}
 	}
 
 	/* Check if asking for endpoint */
-	/* ... */
+	for(i = 0; i < ENDPOINTS_COUNT; ++i)
+	{
+		Endpoint endpoint = endpoints[i];
+		if(request_match_endpoint(req, endpoint))
+		{
+			if(endpoint.callback == NULL) {
+				core_log(CORE_ERROR,
+						"Callback for endpoint '"STR_FMT"' is NULL\n",
+						CSTR(endpoint.uri));
+
+				if(client_send_error_response(client_sockfd, "Callback failure"))
+					core_log(CORE_WARN, "Could not send error response to client for a NULL callback\n");
+
+				return failure;
+			}
+
+			if(endpoint.callback(req))
+			{
+				if(client_send_error_response(client_sockfd, "Callback failure\n"))
+					core_log(CORE_WARN, "Could not send error response to client for Callback failure\n");
+
+				return failure;
+			}
+
+			return success;
+		}
+	}
 
 	/* request not found... fallback */
 	return client_send_error_response(client_sockfd, "Resource not found");
@@ -231,30 +329,100 @@ static error client_read_request(int client_sockfd, Request* req)
 
 	{
 	/* TODO: parse data into request */
+		n8 method_index;
 		n32 i;
 
-		const n8 get_len = strlen("GET");
-		if(buffer_equals(get_len, (n8*)&buffer[0], get_len, (n8*)("GET")))
+		for(method_index = 0; method_index < M_Count; ++method_index)
 		{
-			req->method = M_GET;
+			CString method_label = HTTP_Method_labels[method_index];
+			const n8 method_label_len = (n8)strlen(method_label);
 
-		} else {
-			core_log(CORE_ERROR, "We do not serve non-get requests! ('%.*s')\n",
-					get_len, &buffer[0]);
-			return failure;
+			if(buffer_equals(method_label_len, (n8*)&buffer[0],
+						method_label_len, (const n8*)method_label))
+			{
+				req->method = method_index;
+
+				/* TODO: Check for weird constrains */
+
+				/* Count URI len, after "GET " to ' ' */
+				for(i = (method_label_len + 1); i < BUFF_CAP; ++i)
+					if(buffer[i] == ' ') break;
+
+				fstring_new_from(&req->uri, i - (method_label_len + 1), &buffer[method_label_len + 1]);
+
+				core_log(CORE_INFO, "Received "STR_FMT" request for '"STR_FMT"'\n",
+						CSTR(HTTP_Method_labels[req->method]), FSTR(req->uri));
+
+				/*
+				 * METHOD URI VERSION \r\n
+				 * Key: Value \r\n
+				 * \r\n
+				 * BODY
+				 */
+
+				{
+				/* skip version */
+					while(i < BUFF_CAP && !(buffer[i] == '\r' && buffer[i + i] == '\n'))
+						++i;
+
+					i += 2; /* skip \r\n */
+
+				/* check headers */
+					while(true)
+					{
+#define HEADER_BUFFER_LEN 1024
+						char header_buffer[HEADER_BUFFER_LEN] = {0};
+						n8 header_length = 0;
+
+						FString key = {0};
+						FString val = {0};
+
+						Keyvalue keyval = {0};
+
+#error Check here with debugger...
+
+						for(; i - 1 < BUFF_CAP && !(buffer[i] == '\r' && buffer[i + 1] == '\n'); ++i)
+						{
+							if(buffer[i] == ' ') continue;
+
+							if(key.count == 0 && buffer[i] == ':')
+							{
+								fstring_new_from(&key, header_length, (char*)&header_buffer);
+								header_length = 0;
+								continue;
+							}
+
+							header_buffer[header_length++] = buffer[i];
+						}
+
+						/* Entered body */
+						if(key.count == 0) break;
+
+						/* This one could cause problems (header_length - 2) */
+						fstring_new_from(&val, header_length - 2, (char*)&header_buffer);
+						keyval.key = key;
+						keyval.value = val;
+
+						if(fstring_equals_CStr(key, "Content-Length"))
+						{
+							core_log(CORE_INFO, "Content-Length: '"STR_FMT"'\n", FSTR(val));
+						}
+
+						arr_append(&req->headers, keyval);
+#undef HEADER_BUFFER_LEN
+					}
+
+
+				/* TODO: finish parsing request headers */
+
+				}
+
+				return success;
+			}
 		}
 
-		/* Count URI len */
-		assert(BUFF_CAP > 7);
-		for(i = 0; i < BUFF_CAP - 4; ++i)
-			if(buffer[4 + i] == ' ') break;
-
-		fstring_new_from(&req->URI, i, &buffer[4]);
-
-		core_log(CORE_INFO, "Received "STR_FMT" request for '"STR_FMT"'\n",
-				CSTR(HTTP_Method_labels[req->method]), FSTR(req->URI));
-
-	/* TODO: finish parsing request headers */
+		core_log(CORE_ERROR, "What method even is this? (8 char slice '"STR_FMT"')\n", 8, buffer);
+		return failure;
 	}
 
 	return success;
@@ -295,6 +463,8 @@ static error accept_connection(int sockfd)
 
 		if(client_send_response(client_sockfd, &req))
 			goto defer_accept_connection_failure;
+
+		request_free(&req);
 	}
 
 	close(client_sockfd);
